@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+#
+# new_experiment — create a WES-filtering experiment directory from template/.
+#
+# Copies template/ to <project>/results/<date>_WES-filtering[-<topic>]/, where <project> is
+# two levels above this script (src/WES-filtering), and sets results_dir in its
+# config.yaml to the given WES-snakemake results directory, or else to the
+# chronologically last <project>/results/*/WES-snakemake/results holding combined/.
+# results_dir is written relative to the experiment directory.
+#
+# Usage:
+#   src/WES-filtering/new_experiment [--topic TOPIC] [--results-dir DIR] [--date YYYY-MM-DD]
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$HERE/../.." && pwd)"
+TEMPLATE="$HERE/template"
+
+usage() {
+  cat <<USAGE
+Usage: $(basename "$0") [--topic TOPIC] [--results-dir DIR] [--date YYYY-MM-DD]
+
+  --topic TOPIC      Suffix: results/<date>_WES-filtering-TOPIC
+  --results-dir DIR  WES-snakemake results directory (default: last
+                     results/*/WES-snakemake/results with a combined/ subdirectory)
+  --date DATE        Directory date (default: today)
+
+Project root: $PROJECT_ROOT
+USAGE
+}
+
+topic=""
+results_dir=""
+date="$(date +%F)"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --topic) topic="${2:?--topic needs a value}"; shift 2 ;;
+    --results-dir) results_dir="${2:?--results-dir needs a value}"; shift 2 ;;
+    --date) date="${2:?--date needs a value}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+if [[ ! "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+  echo "Error: --date must be YYYY-MM-DD, got '$date'" >&2
+  exit 1
+fi
+
+if [[ -z "$results_dir" ]]; then
+  results_dir="$(ls -d "$PROJECT_ROOT"/results/*/WES-snakemake/results/combined 2>/dev/null \
+                 | sort | tail -n 1 | xargs -r dirname)"
+  if [[ -z "$results_dir" ]]; then
+    echo "Error: no results/*/WES-snakemake/results/combined under $PROJECT_ROOT;" \
+         "pass --results-dir" >&2
+    exit 1
+  fi
+fi
+if [[ ! -d "$results_dir/combined" ]]; then
+  echo "Error: $results_dir has no combined/ subdirectory (not a WES-snakemake results dir)" >&2
+  exit 1
+fi
+results_dir="$(realpath -s "$results_dir")"
+
+name="${date}_WES-filtering${topic:+-$topic}"
+dest="$PROJECT_ROOT/results/$name"
+if [[ -e "$dest" ]]; then
+  echo "Error: $dest already exists" >&2
+  exit 1
+fi
+
+mkdir -p "$PROJECT_ROOT/results"
+tmp="$PROJECT_ROOT/results/.${name}.tmp.$$"
+mkdir "$tmp"
+cp -r "$TEMPLATE/." "$tmp/"
+rel="$(realpath -s -m --relative-to="$dest" "$results_dir")"
+sed -i "s|^results_dir: \"\"|results_dir: \"$rel\"|" "$tmp/config.yaml"
+grep -q "^results_dir: \"$rel\"" "$tmp/config.yaml" \
+  || { echo "Error: could not set results_dir in $tmp/config.yaml" >&2; exit 1; }
+mv "$tmp" "$dest"
+
+echo "Created $dest"
+echo "  results_dir: $rel"
+echo "Next: edit $name/config.yaml, then run $name/runall --sample-annotations --load --plot"

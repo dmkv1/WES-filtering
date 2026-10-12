@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+#
+# runall — driver script for the WES-filtering experiment in this directory.
+#
+# Filters and QC-labels the somatic SNV/CNV/SV calls of this project's WES-snakemake run.
+# Project-agnostic: every path and project-specific choice (group1/group2, driver loci,
+# filter thresholds) lives in config.yaml; keys it leaves out take the defaults of
+# src/WES-filtering/template/config.yaml. --load writes the src/WES-filtering version
+# (git describe) to WES-filtering.version.
+#
+# Usage:
+#   ./runall --sample-annotations
+#                     Rebuild metadata/sample_annotations.csv from samples.tsv, keeping
+#                     every existing edit (src/WES-filtering/build_sample_annotations.R)
+#   ./runall --load   Refresh metadata.csv, filter SNVs/CNVs/SVs from the WES-snakemake
+#                     combined_*.tsv tables, write combined_{snvs,cnvs,svs}.qs2
+#                     (src/WES-filtering/load_WES_results.R)
+#   ./runall --plot   Diagnostic plots: cn=0 rel_depth distribution
+#                     (analysis-CNVs/plot_cn0_rel_depth.R), genome-wide CNV tracks
+#                     (analysis-CNVs/plot_cnv_tracks.R), per-sample SNV
+#                     FILTER-status bars and per-patient SNV AF dot plots
+#                     (analysis-SNVs/plot_snv_filters.R)
+#
+# Flags can be combined and run in that order regardless of the order given.
+# --plot's SNV panel requires --load to have run at least once (reads combined_snvs.qs2).
+# Re-running is safe: each step overwrites only its own outputs.
+#
+# Abort immediately on any error or unset variable, and on failures inside a pipeline.
+set -euo pipefail
+
+# --- centralize every path used by this experiment ---------------------------------------
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$HERE/../.."
+SRC_DIR="$PROJECT_ROOT/src/WES-filtering"
+CONFIG="$HERE/config.yaml"
+
+usage() {
+  cat <<USAGE
+Usage: $(basename "$0") [--sample-annotations] [--load] [--plot]
+
+  --sample-annotations
+                Rebuild the sample_annotations table configured in $CONFIG,
+                keeping existing edits (--load creates it when missing)
+
+  --load        Refresh metadata.csv and combined_{snvs,cnvs,svs}.qs2 from the
+                WES-snakemake results_dir configured in $CONFIG
+  --plot        Regenerate analysis-CNVs/cn0_rel_depth_distribution.png, analysis-CNVs/cnv_tracks.png,
+                analysis-SNVs/filters_SNV.png and analysis-SNVs/af_SNV_<Disease>.png
+                (requires --load outputs)
+USAGE
+}
+
+do_annot=0
+do_load=0
+do_plot=0
+if [[ $# -eq 0 ]]; then
+  usage
+  exit 1
+fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --sample-annotations) do_annot=1; shift ;;
+    --load) do_load=1; shift ;;
+    --plot) do_plot=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
+  esac
+done
+
+VERSION="$(git -C "$SRC_DIR" describe --tags --always --dirty 2>/dev/null || echo unknown)"
+echo "[runall] WES-filtering $VERSION"
+
+if [[ $do_annot -eq 1 ]]; then
+  echo "[runall] --sample-annotations: rebuilding the per-sample annotation table"
+  Rscript "$SRC_DIR/build_sample_annotations.R" --config "$CONFIG"
+fi
+
+if [[ $do_load -eq 1 ]]; then
+  echo "[runall] --load: filtering SNVs/CNVs/SVs from the pipeline"
+  Rscript "$SRC_DIR/load_WES_results.R" --config "$CONFIG"
+  echo "$VERSION" > "$HERE/WES-filtering.version"
+fi
+
+if [[ $do_plot -eq 1 ]]; then
+  echo "[runall] --plot: cn=0 rel_depth diagnostic plot"
+  Rscript "$SRC_DIR/analysis-CNVs/plot_cn0_rel_depth.R" --config "$CONFIG"
+  echo "[runall] --plot: CNV tracks"
+  Rscript "$SRC_DIR/analysis-CNVs/plot_cnv_tracks.R" --config "$CONFIG"
+  echo "[runall] --plot: SNV FILTER-status and AF diagnostic plots"
+  Rscript "$SRC_DIR/analysis-SNVs/plot_snv_filters.R" --config "$CONFIG"
+fi

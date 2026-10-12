@@ -1,0 +1,12 @@
+term	pass_consequence	coding_consequence
+missense_variant	TRUE	TRUE
+frameshift_variant	TRUE	TRUE
+stop_gained	TRUE	TRUE
+stop_lost	TRUE	TRUE
+start_lost	TRUE	TRUE
+inframe_insertion	TRUE	TRUE
+inframe_deletion	TRUE	TRUE
+protein_altering_variant	TRUE	TRUE
+splice_acceptor_variant	TRUE	TRUE
+splice_donor_variant	TRUE	TRUE
+3_prime_UTR_variant	TRUE	FALSE

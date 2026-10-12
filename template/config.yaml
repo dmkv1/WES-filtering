@@ -1,0 +1,139 @@
+# WES-filtering config. Every path and project-specific choice for src/WES-filtering lives
+# here. This file in src/WES-filtering/template/ also holds the defaults: a key an
+# experiment's config leaves out takes the value given here (config.R).
+#
+# Relative paths resolve against the directory holding this file (the experiment directory,
+# results/<date>_WES-filtering/), so ../../ is the project root.
+
+# WES-snakemake results directory (contains combined/combined_{snvs,cnvs,svs,qc}.tsv and
+# metadata/samples.tsv). Required; new_experiment fills it in.
+results_dir: ""
+
+# metadata.csv is written here; patient_annotations and sample_annotations live here.
+metadata_dir: "../../metadata"
+
+# Disease for patients without a Disease value in patient_annotations. "" = NA.
+disease: ""
+
+# Hand-edited patient-level table (csv keyed by ID), relative to metadata_dir. Every column
+# but notes is joined into metadata.csv; a column may not shadow a generated one (Disease
+# excepted). "" = none.
+patient_annotations: ""
+
+# Hand-edited per-sample table (csv keyed by sID), relative to metadata_dir. Created by
+# --load when missing, rebuilt (edits kept) by ./runall --sample-annotations. A non-empty
+# exclude_reason sets the sample's QC to "excluded". "" = none.
+sample_annotations: "sample_annotations.csv"
+
+# group1: the grouping samples are compared within; required. group2: optional ("" = NA).
+# Each names a column of metadata.csv's own set (ID, sID, sample_type, gender, capture_kit,
+# tumor_fraction, Disease, calling_mode) or of patient_annotations.
+group1: "sample_type"
+group2: ""
+
+# Genes to flag (exact or prefix match) in the SNV/CNV/SV filters: large, polymorphic or
+# repetitive genes prone to sequencing artifacts. Relative to this directory.
+flags_genelist: "flags_genes.csv"
+
+# SNV gene list (xlsx with 'diagnosis' and 'genesymbol' columns), filtered to
+# snv_genelist_diagnosis when set. Needed by the germline and clustered rescues; also
+# exported as a gene-list subset. "" = none.
+snv_genelist: ""
+snv_genelist_diagnosis: ""
+
+# UCSC hg38 cytoband table (chrom, start, end, band, gieStain) for the cytoband row of
+# analysis-CNVs/plot_cnv_tracks.R. "" = src/WES-filtering/resources/cytoBand.hg38.txt.gz.
+cytoband: ""
+
+# CNV gene list (csv with 'gene' and 'to_use' columns). "" skips gene-level CNV comparisons.
+cnv_genelist: ""
+
+# Filter thresholds. The defaults are the values both cohorts run with; comments name the
+# per-cohort settings where they differ:
+#   DLBCL = dlbcl-avatars (PT/PDX/PDCL; WES-filtering 2026-10-06)
+#   MCL   = 101MCL_WES_analysis (leukemic MCL cohort; WES-filtering 2026-10-06)
+
+# SNV filters (analysis-SNVs/filter_SNVs.R).
+snv_filter_params:
+  # Strand-bias rescue (analysis-SNVs/strandbias_rescue.R): a call whose only Mutect2 label
+  # is strand_bias is labelled PASS when the Fisher p of its strand counts is
+  # >= strandbias_fisher_p_min, it has >= strandbias_min_alt_reads alt reads,
+  # AF_tumor >= strandbias_af_min and fewer than min_recurring_runs_for_strandbias_filter
+  # other patients carry the same call. With strandbias_hotspot_exempt, calls on a
+  # hotspot_list hotspot skip the recurrence condition.
+  strandbias_rescue:       true
+  strandbias_fisher_p_min: 0.05
+  strandbias_min_alt_reads: 3
+  strandbias_af_min:       0.2    # DLBCL, MCL: 0.2 (dlbcl-avatars 2026-10-02b_strandbias-options,
+                                  # option B); 0 rescues low-AF strand-bias calls too
+  min_recurring_runs_for_strandbias_filter: 1
+  strandbias_hotspot_exempt: false   # needs hotspot_list. DLBCL: true (EZH2 Y646 recurs
+                                     # across patients); MCL: false (no hotspot list)
+  # combined_snvs.qs2 of another callset whose patients also count towards recurrence.
+  # "" = this callset only.
+  strandbias_recurrence_reference: ""
+
+  # Hotspots (csv) for strandbias_hotspot_exempt and germline_rescue. "" = none.
+  # DLBCL: data/genelists/SNV/hotspots.csv (MYD88 L265P, EZH2 Y646); MCL: none.
+  hotspot_list: ""
+
+  # Germline rescue (tumor-only samples): a germline-only call becomes PASS when it is
+  # protein-altering in a snv_genelist gene or on a hotspot_list hotspot. Needs
+  # snv_genelist and hotspot_list. DLBCL: true (tumor-only PT/PDX/PDCL samples);
+  # MCL: false (no MCL gene list yet).
+  germline_rescue: false
+
+  # Clustered-call rescue: a call labelled only clustered_events and/or haplotype becomes
+  # PASS when its gene is in snv_genelist or clustered_rescue_genes (e.g. aSHM targets), is
+  # not in clustered_rescue_exclude_genes, and has AF_tumor >= clustered_rescue_af_min and
+  # AD_ALT_tumor >= clustered_rescue_min_alt_reads. Needs snv_genelist and
+  # clustered_rescue_genes (csv with a 'gene' column). DLBCL: true with
+  # data/genelists/SNV/ashm_genes.csv (aSHM of PIM1/IGLL5/BCL2/MYC, multi-hit KLHL14/EZH2);
+  # MCL: false (no MCL gene list yet).
+  clustered_rescue: false
+  clustered_rescue_genes: ""
+  clustered_rescue_af_min: 0.1
+  clustered_rescue_min_alt_reads: 5
+  clustered_rescue_exclude_genes: ["HLA-A", "HLA-B", "HLA-C"]
+
+  # PASS calls in these genes above this AF are labelled FLAGS_high_AF (HLA mapping artifacts).
+  high_af_flag_genes: ["HLA-A", "HLA-B", "HLA-C"]
+  high_af_flag_min: 0.9
+
+  # germline_ctrl: a variant is called germline only when both hold. The ratio test keeps
+  # tumor-in-normal contamination somatic. Tuned on MCL, whose matched blood/marrow
+  # "normals" often carry tumor; DLBCL uses the same values (not reviewed against its CTRL
+  # samples). A cohort with clean normals can lower germline_ctrl_ratio_min.
+  germline_ctrl_af_min:    0.05   # matched-normal AF above which a variant may be germline
+  germline_ctrl_ratio_min: 0.25   # AF_ctrl/AF_tumor above which it is germline rather than
+                                  # tumor-in-normal contamination
+
+# CNV filters (analysis-CNVs/filter_CNVs.R). ./runall --plot draws
+# analysis-CNVs/cn0_rel_depth_distribution.png for choosing artifact_rel_depth_min.
+# Tuned on MCL; DLBCL uses the same values (not reviewed against its depth distribution).
+cnv_filter_params:
+  artifact_rel_depth_min:  0.15   # depth/diploid-baseline above which a cn=0 call still has coverage
+  low_probe_probes_max:    4      # segments with fewer CNVkit probes than this...
+  low_probe_width_max_mb:  1      # ...and narrower than this (Mb) are noise, not real CNAs
+
+# SV filters (analysis-SV/filter_SVs.R). recurrent_artifact: a breakpoint recurring at
+# (near-)identical coordinates across several unrelated patients is a mapping/repeat
+# artifact rather than a shared somatic event. Tuned on MCL; DLBCL uses the same values.
+sv_filter_params:
+  recurrent_min_patients:  3      # breakpoint bin found in at least this many patients
+  recurrence_bin_bp:       100    # breakpoint coordinate binning window (bp)
+
+# Driver loci exempted from recurrent_artifact/single_caller_TRA (filter_SVs.R section 6):
+# a recurring driver translocation is expected, not an artifact. GRCh38, chromosome without
+# "chr", gene-body coordinates. Needed for the driver-side row of an Ig-partnered
+# translocation, which the Ig/TCR exemption does not cover. Never inherited from this
+# template; {} = Ig/TCR loci only.
+sv_driver_loci: {}
+# DLBCL:
+#   BCL2:  {chrom: "18", start: 63123346,  end: 63320128}
+#   BCL6:  {chrom: "3",  start: 187721377, end: 187745725}
+#   MYC:   {chrom: "8",  start: 127735434, end: 127742951}
+# MCL:
+#   CCND1: {chrom: "11", start: 69641143,  end: 69654474}
+#   CCND2: {chrom: "12", start: 4269771,   end: 4306933}
+#   CCND3: {chrom: "6",  start: 41934934,  end: 42050357}
